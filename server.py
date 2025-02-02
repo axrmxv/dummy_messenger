@@ -30,7 +30,7 @@ engine = create_async_engine(
 )
 
 # Создание асинхронной сессии для работы с базой данных
-SessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession)
+SessionLocal = async_sessionmaker(bind=engine)
 
 
 # Генератор для получения асинхронной сессии базы данных
@@ -44,28 +44,23 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 # Базовый класс для всех моделей SQLAlchemy
 class Base(DeclarativeBase):
-    pass
-
-
-# Миксин для добавления общих полей в модели
-class BaseModelMixin:
     @declared_attr.directive
     def __tablename__(cls) -> str:
-        return cls.__name__.lower()  # type: ignore
+        return cls.__name__.lower()
 
     id: Mapped[int] = mapped_column(
         primary_key=True, index=True, autoincrement=True
     )
-    created_at: Mapped[datetime] = mapped_column(
-        default=func.now(), server_default=func.now()
-    )
 
 
 # Модель для сообщений
-class Message(BaseModelMixin, Base):
+class Message(Base):
     sender: Mapped[str] = mapped_column(String(20), index=True, nullable=False)
     text: Mapped[str] = mapped_column(String(100), nullable=False)
     message_count: Mapped[int] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        default=func.now(), server_default=func.now()
+    )
 
 
 # Базовый класс Pydantic для валидации входящих данных
@@ -128,14 +123,6 @@ async def send_message(
 
     try:
         async with db.begin():
-            # Атомарное увеличение счётчика сообщений для пользователя
-            # result = await db.execute(
-            #     select(func.max(Message.message_count))
-            #     .filter(Message.sender == sender)
-            # )
-            # last_message_count: Optional[int] = result.scalar_one_or_none()
-            # new_message_count = (last_message_count or 0) + 1
-
             # Гарантируем уникальный `message_count`
             result = await db.execute(
                 select(func.coalesce(func.max(Message.message_count), 0) + 1)
@@ -167,7 +154,6 @@ async def send_message(
                 ) for msg in last_messages.scalars()
             ]
 
-            # logger.info(f"Returning {len(messages_list)} messages.")
             return messages_list
 
     except Exception as e:
